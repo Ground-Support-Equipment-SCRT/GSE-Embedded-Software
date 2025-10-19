@@ -42,7 +42,7 @@ pico_set_program_version(blink "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(blink 0)
-pico_enable_stdio_usb(blink 0)
+pico_enable_stdio_usb(blink 1)
 
 # Add the standard library to the build
 target_link_libraries(blink pico_stdlib)
@@ -52,7 +52,21 @@ target_include_directories(blink PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
+# RFM69 library
+add_library(rfm69 STATIC
+    rfm69.cpp
+)
+
+target_include_directories(rfm69
+    PUBLIC ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rfm69
+    PUBLIC pico_stdlib
+    PUBLIC hardware_spi
+)
+
 # Add any user requested libraries
-target_link_libraries(blink  )
+target_link_libraries(blink  rfm69)
 
 pico_add_extra_outputs(blink)
