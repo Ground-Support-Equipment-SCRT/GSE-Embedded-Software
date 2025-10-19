@@ -12,6 +12,7 @@ public:
     bool receive(uint8_t* buffer, uint8_t& len);
     void reset();
     void setMode(uint8_t mode);
+    uint8_t readReg(uint8_t addr);
 
 private:
     spi_inst_t* spi;
@@ -20,7 +21,6 @@ private:
     uint rst;
 
     void configureDefaults();
-    uint8_t readReg(uint8_t addr);
     void writeReg(uint8_t addr, uint8_t value);
 };
 

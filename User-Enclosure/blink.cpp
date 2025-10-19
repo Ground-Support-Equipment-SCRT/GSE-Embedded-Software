@@ -15,10 +15,26 @@ int main() {
     radio.reset();
     radio.init(915.0); // MHz
 
+    // gives me time to open putty
+    for(int i = 7; i > 0; i--){
+        printf("%d\n", i);
+        sleep_ms(1000);
+    }
+
+    radio.setMode(0x10);
+    printf("Radio in RX mode\n");
+
+    uint8_t version = radio.readReg(0x10);
+    printf("RFM69 Version: 0x%02X\n", version);
+    if((int)version == 0){
+        printf("RFM69 not detected!\n");
+        return -1;
+    }
+
     
     //const uint8_t msg[] = "Hello";
     //radio.send(msg, sizeof(msg));
-    //printf("Sent hello\n");
+    printf("Waiting for messages...\n");
 
     while (true) {
         uint8_t buf[64];

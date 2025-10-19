@@ -18,12 +18,21 @@ Rfm69::Rfm69(const std::string& spiDev, int dio0Gpio)
     : spiFd(-1), gpioDio0(dio0Gpio)
 {
     spiFd = open(spiDev.c_str(), O_RDWR);
+    if (spiFd < 0) {
+        std::cout << "spifd error" << std::endl;
+        return;
+    }
     uint8_t mode = 0;
     ioctl(spiFd, SPI_IOC_WR_MODE, &mode);
+    if (ioctl(spiFd, SPI_IOC_WR_MODE, &mode) < 0) std::cout << "error 1" << std::endl;
     uint8_t bits = 8;
     ioctl(spiFd, SPI_IOC_WR_BITS_PER_WORD, &bits);
+    if (ioctl(spiFd, SPI_IOC_WR_BITS_PER_WORD, &bits) < 0) std::cout << "error 2" << std::endl;
     uint32_t speed = 4000000;
     ioctl(spiFd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
+    if (ioctl(spiFd, SPI_IOC_WR_MAX_SPEED_HZ, &speed) < 0) std::cout << "error 3" << std::endl;
+
+    std::cout << "SPI initialized" << std::endl;
 
     // Export DIO0 GPIO for interrupt/poll
     std::ofstream exportG("/sys/class/gpio/export");
@@ -36,17 +45,37 @@ Rfm69::~Rfm69() {
 }
 
 uint8_t Rfm69::readReg(uint8_t addr) {
-    uint8_t tx[2] = { addr & 0x7F, 0 };
+    if (spiFd < 0) return 0;
+
+    uint8_t tx[2] = { (uint8_t)(addr & 0x7F), 0 };
     uint8_t rx[2] = { 0, 0 };
-    struct spi_ioc_transfer tr = { .tx_buf=(unsigned long)tx, .rx_buf=(unsigned long)rx, .len=2 };
-    ioctl(spiFd, SPI_IOC_MESSAGE(1), &tr);
+
+    struct spi_ioc_transfer tr = {};
+    tr.tx_buf = (unsigned long)tx;
+    tr.rx_buf = (unsigned long)rx;
+    tr.len = 2;
+    tr.speed_hz = 4000000;
+    tr.bits_per_word = 8;
+
+    if (ioctl(spiFd, SPI_IOC_MESSAGE(1), &tr) < 0)
+        perror("SPI_IOC_MESSAGE");
+
     return rx[1];
 }
 
 void Rfm69::writeReg(uint8_t addr, uint8_t value) {
-    uint8_t tx[2] = { addr | 0x80, value };
-    struct spi_ioc_transfer tr = { .tx_buf=(unsigned long)tx, .rx_buf=0, .len=2 };
-    ioctl(spiFd, SPI_IOC_MESSAGE(1), &tr);
+    if (spiFd < 0) return;
+
+    uint8_t tx[2] = { (uint8_t)(addr | 0x80), value };
+
+    struct spi_ioc_transfer tr = {};
+    tr.tx_buf = (unsigned long)tx;
+    tr.len = 2;
+    tr.speed_hz = 4000000;
+    tr.bits_per_word = 8;
+
+    if (ioctl(spiFd, SPI_IOC_MESSAGE(1), &tr) < 0)
+        perror("SPI_IOC_MESSAGE");
 }
 
 void Rfm69::setMode(uint8_t mode) {
@@ -66,14 +95,29 @@ bool Rfm69::init(float freqMHz) {
 }
 
 void Rfm69::configureDefaults() {
-    writeReg(0x02, 0x00); // DataModul
-    writeReg(0x03, 0x05);
-    writeReg(0x04, 0x00);
-    writeReg(0x11, 0x9F); // PaLevel
-    writeReg(0x25, 0x40); // DccFreq
+    writeReg(0x01, 0x04);   // Standby
+    writeReg(0x02, 0x00);   // DataModul: packet mode, FSK
+    writeReg(0x03, 0x05);   // BitRateMsb  (4800 bps example)
+    writeReg(0x04, 0x00);   // BitRateLsb
+    writeReg(0x05, 0x52);   // FdevMsb (frequency deviation)
+    writeReg(0x06, 0x83);   // FdevLsb
+    writeReg(0x11, 0x9F);   // PowerLevel
+    writeReg(0x25, 0x40);   // DccFreq, RxBw
+
+    // Enable sync word (must match both ends)
+    writeReg(0x2E, 0x90);   // SyncOn=1, SyncSize=2 bytes
+    writeReg(0x2F, 0xAA);   // Sync word byte 1
+    writeReg(0x30, 0x2D);   // Sync word byte 2
+
+    // Variable length packets, CRC OFF
+    writeReg(0x37, 0x80);   // PacketConfig1
+    writeReg(0x38, 0x05);   // Payload length (ignored in var-len)
+    writeReg(0x3C, 0x8F);   // FIFO threshold
+    writeReg(0x3D, 0x00);   // PacketConfig2: AES off, no auto restart
 }
 
-bool Rfm69::send(const uint8_t* data, uint8_t len) {
+
+bool Rfm69::send(const uint8_t* data, int len) {
     // 1. Standby mode
     std::cout << "Set standby mode" << std::endl;
     setMode(MODE_STDBY);
@@ -85,6 +129,7 @@ bool Rfm69::send(const uint8_t* data, uint8_t len) {
     while (!(readReg(0x27) & 0x80));
 
     // 3. Fill FIFO
+    std::cout << "Writing lengtha " << len << std::endl;
     writeReg(0x00, len);
     for (uint8_t i = 0; i < len; ++i)
         writeReg(0x00, data[i]);

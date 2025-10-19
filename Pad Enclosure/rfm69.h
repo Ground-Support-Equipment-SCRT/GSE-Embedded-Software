@@ -8,7 +8,7 @@ public:
     ~Rfm69();
 
     bool init(float freqMHz = 915.0);
-    bool send(const uint8_t* data, uint8_t len);
+    bool send(const uint8_t* data, int len);
     bool receive(uint8_t* buffer, uint8_t& len);
     uint8_t readReg(uint8_t addr);
     void reset(int resetGpio);

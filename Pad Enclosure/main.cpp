@@ -1,10 +1,20 @@
 #include "rfm69.h"
 #include <iostream>
 #include <cstring>
+#include <unistd.h>
+#include <thread>
+#include <chrono>
+
+// Copy to pi:
+// scp -r "C:\Users\matt\Documents\GitHub\GSE-Embedded-Software\Pad Enclosure\."  matt@10.0.0.210:/home/matt/Desktop/Pad-Enclosure/
+// Compile on Pi:
+// cmake ..; make
 
 int main() {
     Rfm69 radio;
+    radio.init();
     radio.reset(17);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     uint8_t version = radio.readReg(0x10);
     std::cout << "RegVersion = 0x" << std::hex << (int)version << std::endl;
@@ -20,14 +30,20 @@ int main() {
     
     std::cout << "Initialized" << std::endl;
 
-    const char msg[] = "hello world";
+    std::string msg = "hello world";
+    std::cout << std::dec << "len: " << static_cast<int>(msg.size()) << std::endl;
     // Send three messages in quick succession
-    for (int i = 0; i < 3; ++i) {
-        bool ok = radio.send(reinterpret_cast<const uint8_t*>(msg), static_cast<uint8_t>(strlen(msg)));
+    while (true) {
+        bool ok = radio.send(
+            reinterpret_cast<const uint8_t*>(msg.data()),
+            static_cast<int>(msg.size()));
         if (!ok) {
-            std::cerr << "Send failed on attempt " << (i + 1) << "/3\n";
+            std::cerr << "Send failed \n";
         }
-        std::cout << "Sent message " << (i + 1) << std::endl;
+        std::cout << "Sent message" << std::endl;
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     }
 
     //std::cout << "Sent 3 messages\n";

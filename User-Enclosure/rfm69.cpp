@@ -50,15 +50,31 @@ void Rfm69::writeReg(uint8_t addr, uint8_t value) {
 void Rfm69::setMode(uint8_t mode) {
     uint8_t op = readReg(REG_OPMODE);
     writeReg(REG_OPMODE, (op & 0xE3) | mode);
+    while (!(readReg(0x27) & 0x80));
 }
 
 void Rfm69::configureDefaults() {
-    writeReg(0x02, 0x00);
-    writeReg(0x03, 0x05);
-    writeReg(0x04, 0x00);
-    writeReg(0x11, 0x9F);
-    writeReg(0x25, 0x40);
+    writeReg(0x01, 0x04);   // Standby
+    writeReg(0x02, 0x00);   // DataModul: packet mode, FSK
+    writeReg(0x03, 0x05);   // BitRateMsb  (4800 bps example)
+    writeReg(0x04, 0x00);   // BitRateLsb
+    writeReg(0x05, 0x52);   // FdevMsb (frequency deviation)
+    writeReg(0x06, 0x83);   // FdevLsb
+    writeReg(0x11, 0x9F);   // PowerLevel
+    writeReg(0x25, 0x40);   // DccFreq, RxBw
+
+    // Enable sync word (must match both ends)
+    writeReg(0x2E, 0x90);   // SyncOn=1, SyncSize=2 bytes
+    writeReg(0x2F, 0xAA);   // Sync word byte 1
+    writeReg(0x30, 0x2D);   // Sync word byte 2
+
+    // Variable length packets, CRC OFF
+    writeReg(0x37, 0x80);   // PacketConfig1
+    writeReg(0x38, 0x05);   // Payload length (ignored in var-len)
+    writeReg(0x3C, 0x8F);   // FIFO threshold
+    writeReg(0x3D, 0x00);   // PacketConfig2: AES off, no auto restart
 }
+
 
 bool Rfm69::init(float freqMHz) {
     configureDefaults();
@@ -95,10 +111,17 @@ bool Rfm69::send(const uint8_t* data, uint8_t len) {
 }
 
 bool Rfm69::receive(uint8_t* buffer, uint8_t& len) {
-    if (!(readReg(REG_IRQFLAGS2) & 0x04))
-        return false;
-    len = readReg(0x00);
-    for (uint8_t i = 0; i < len; ++i)
+    uint8_t irq2 = readReg(0x28);
+    if ((irq2 & 0x04) == 0) return false; // PayloadReady
+
+    uint8_t l = readReg(0x00);
+    if(l > 64) return false; // prevent overflow
+
+    for (uint8_t i = 0; i < l; ++i)
         buffer[i] = readReg(0x00);
+
+    len = l;
     return true;
 }
+
+
