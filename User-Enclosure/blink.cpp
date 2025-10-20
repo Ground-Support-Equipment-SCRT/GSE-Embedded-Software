@@ -6,14 +6,6 @@
 int main() {
     stdio_init_all();
 
-    spi_init(spi1, 4000000);
-    gpio_set_function(10, GPIO_FUNC_SPI); // SCK
-    gpio_set_function(11, GPIO_FUNC_SPI); // MOSI
-    gpio_set_function(12, GPIO_FUNC_SPI); // MISO
-
-    Rfm69 radio(spi1, 13, 14, 15); // CS=13, DIO0=14, RESET=15
-    radio.reset();
-    radio.init(915.0); // MHz
 
     // gives me time to open putty
     for(int i = 7; i > 0; i--){
@@ -21,8 +13,11 @@ int main() {
         sleep_ms(1000);
     }
 
-    radio.setMode(0x10);
-    printf("Radio in RX mode\n");
+    Rfm69 radio(spi1, 13, 15, 14); // CS=13, RESET=15, DIO0=14
+    radio.init();
+
+    //radio.setMode(0x10);
+    //printf("Radio in RX mode\n");
 
     uint8_t version = radio.readReg(0x10);
     printf("RFM69 Version: 0x%02X\n", version);
@@ -31,20 +26,22 @@ int main() {
         return -1;
     }
 
+    sleep_ms(100);
+    uint8_t opMode = radio.readReg(0x01);
+    uint8_t mode = (opMode >> 2) & 0x07;  // isolate bits 4–2
+    printf("Current Mode: 0x%02X\n", mode);
     
-    //const uint8_t msg[] = "Hello";
-    //radio.send(msg, sizeof(msg));
-    printf("Waiting for messages...\n");
-
+    uint8_t buf[66];
+    uint8_t len = 0;
     while (true) {
-        uint8_t buf[64];
-        uint8_t len = 0;
         if (radio.receive(buf, len)) {
             printf("Received %d bytes: ", len);
-            for (int i = 0; i < len; i++) printf("%02X ", buf[i]);
+            for (uint8_t i = 0; i < len; i++) {
+                printf("%02X ", buf[i]);
+            }
             printf("\n");
         }
-        sleep_ms(500);
+        sleep_ms(50);
     }
     return 0;
 }

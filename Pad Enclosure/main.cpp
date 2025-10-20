@@ -11,9 +11,9 @@
 // cmake ..; make
 
 int main() {
-    Rfm69 radio;
-    radio.init();
-    radio.reset(17);
+    Rfm69 radio("/dev/spidev0.0", 25); // SPI0 CE0, DIO0 on GPIO25
+    radio.reset(17);                   // optional reset pin (GPIO17)
+    radio.init(915.0);                 // set frequency 915 MHz
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     uint8_t version = radio.readReg(0x10);
@@ -23,29 +23,15 @@ int main() {
         return 1;
     }
 
-    if (!radio.init(915.0)) {
-        std::cerr << "Init failed\n";
-        return 1;
-    }
-    
-    std::cout << "Initialized" << std::endl;
-
-    std::string msg = "hello world";
-    std::cout << std::dec << "len: " << static_cast<int>(msg.size()) << std::endl;
-    // Send three messages in quick succession
     while (true) {
-        bool ok = radio.send(
-            reinterpret_cast<const uint8_t*>(msg.data()),
-            static_cast<int>(msg.size()));
-        if (!ok) {
-            std::cerr << "Send failed \n";
-        }
-        std::cout << "Sent message" << std::endl;
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
+        uint8_t msg[] = "Hello from Pi4 TX";
+        if (radio.send(msg, sizeof(msg)))
+        std::cout << "Packet sent successfully\n";
+        else
+            std::cout << "TX timeout\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
-    //std::cout << "Sent 3 messages\n";
+    //std::cout << "Sent messages\n";
     return 0;
 }

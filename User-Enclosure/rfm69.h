@@ -1,27 +1,27 @@
 #ifndef RFM69_H
 #define RFM69_H
 
-#include "pico/stdlib.h"
 #include "hardware/spi.h"
+#include "hardware/gpio.h"
 
 class Rfm69 {
 public:
-    Rfm69(spi_inst_t* spiPort, uint csPin, uint dio0Pin, uint resetPin);
-    bool init(float freqMHz);
-    bool send(const uint8_t* data, uint8_t len);
-    bool receive(uint8_t* buffer, uint8_t& len);
+    Rfm69(spi_inst_t *spiPort, uint csPin, uint resetPin, uint dio0Pin);
+    void init();
     void reset();
-    void setMode(uint8_t mode);
     uint8_t readReg(uint8_t addr);
+    void writeReg(uint8_t addr, uint8_t value);
+    void setMode(uint8_t mode);
+    bool receive(uint8_t *buf, uint8_t &len);
 
 private:
-    spi_inst_t* spi;
+    spi_inst_t *spi;
     uint cs;
-    uint dio0;
     uint rst;
+    uint dio0;
 
-    void configureDefaults();
-    void writeReg(uint8_t addr, uint8_t value);
+    void csSelect();
+    void csDeselect();
 };
 
 #endif
