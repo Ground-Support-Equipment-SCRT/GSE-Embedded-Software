@@ -1,8 +1,10 @@
 #include <RadioHead.h>
 #include <SPI.h>
 #include <RH_RF69.h>
-#include "pico/cyw43_arch.h"
+//#include "pico/cyw43_arch.h"
 #include "Adafruit_seesaw.h"
+#include <Adafruit_BNO055.h>
+#include <Wire.h>
 #define RF69_FREQ 915.0
 #define RFM69_CS   13
 #define RFM69_RST  15
@@ -13,8 +15,12 @@ const int greenPin = 2;
 const int bluePin = 1;
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 Adafruit_seesaw ss;
+Adafruit_BNO055 bno(55, 0x28, &Wire1);
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
+bool encoder_detected = false;
+bool bno_detected = false;
+bool is_tx = true;
 
 void setup() {
   //pinMode(redPin, OUTPUT);
@@ -26,6 +32,7 @@ void setup() {
   
   RFM_Setup();
   Encoder_Setup();
+  Gyro_Setup();
 
   SendRfmMessage();
   Serial.println("Finished setup.");
@@ -75,26 +82,55 @@ void Encoder_Setup(){
   Wire.setSCL(1);
   Wire.begin();
   
-  if (!ss.begin(0x36)) {
-    Serial.println("Seesaw not found!");
+  if (ss.begin(0x36)) {
+    encoder_detected = true;
+    is_tx = false;
+  }
+}
+
+void Gyro_Setup(){
+  Wire1.setSDA(6);
+  Wire1.setSCL(7);
+  Wire1.begin();
+
+  if (!bno.begin()) {
+      Serial.println("BNO055 not found");
+  }
+  else {
+    bno_detected = true;
+    bno.setMode(OPERATION_MODE_NDOF);   // NDOF
   }
 }
 
 double t = 0.0;
 double last_received_message = 0.0;
+int32_t encoder_position = 0;
 
 void loop() {
-  //if (!rf69.available()) return;
-  //Serial.println(counter);
   delay(10);
   t += 0.01;
 
   long steps = lround(t * 100.0); // counter in 0.01 units
   if (steps % 10 == 0) {
     //SendRfmMessage();
-    
-    int32_t pos = ss.getEncoderPosition();
-    Serial.println(pos);
+    //Serial.println(t);
+    if(encoder_detected){
+      int32_t pos = ss.getEncoderPosition();
+      if(pos == 0 && encoder_position != 0){
+        last_received_message = t;
+      }
+      encoder_position = pos;
+      Serial.println(pos);
+    }
+
+    if(bno_detected){
+      auto vec = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+      Serial.print(vec.x());
+      Serial.print(", ");
+      Serial.print(vec.y());
+      Serial.print(", ");
+      Serial.println(vec.z());
+    }
   }
 
   
@@ -156,12 +192,3 @@ void SetLED() {
   }
   analogWrite(greenPin, brightness);
 }
-
-// void Blink(byte pin, byte delay_ms, byte loops) {
-//   while (loops--) {
-//     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-//     delay(delay_ms);
-//     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-//     delay(delay_ms);
-//   }
-// }
