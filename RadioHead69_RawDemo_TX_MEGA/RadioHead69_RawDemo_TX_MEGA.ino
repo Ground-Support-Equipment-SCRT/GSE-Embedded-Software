@@ -1,47 +1,41 @@
 #include <RadioHead.h>
-
-// rf69 demo tx rx.pde
-// -*- mode: C++ -*-
-// Example sketch showing how to create a simple messaging client
-// with the RH_RF69 class. RH_RF69 class does not provide for addressing
-// or reliability, so you should only use RH_RF69 if you do not need the
-// higher level messaging abilities.
-// It is designed to work with the other example RadioHead69_RawDemo_RX.
-// Demonstrates the use of AES encryption, setting the frequency and
-// modem configuration.
-
 #include <SPI.h>
 #include <RH_RF69.h>
 #include "pico/cyw43_arch.h"
-
-/************ Radio Setup ***************/
-
-// Change to 434.0 or other frequency, must match RX's freq!
+#include "Adafruit_seesaw.h"
 #define RF69_FREQ 915.0
-
-// Pin definitions for Raspberry Pi Pico + RFM69 module
 #define RFM69_CS   13
 #define RFM69_RST  15
 #define RFM69_INT  14
 #define LED        25  // Use 25 for onboard LED, or 13 if you wired an external LED
-
-// Singleton instance of the radio driver
+const int redPin = 0;
+const int greenPin = 2;
+const int bluePin = 1;
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
+Adafruit_seesaw ss;
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
 void setup() {
+  //pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  //pinMode(bluePin, OUTPUT);
 
   Serial.begin(115200);
-  delay(2000); // Wait for USB serial to initialize
-  Serial.println("Initialized");
+  while(!Serial);
+  
+  RFM_Setup();
+  Encoder_Setup();
 
-  //while (!Serial) delay(1); // Wait for Serial Console (comment out line if no computer)
+  SendRfmMessage();
+  Serial.println("Finished setup.");
+}
+
+void RFM_Setup(){
+  //Serial.println("Initialized");
 
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
-
-  //cyw43_arch_init();
 
   // manual reset
   digitalWrite(RFM69_RST, HIGH);
@@ -53,14 +47,15 @@ void setup() {
     Serial.println("RFM69 radio init failed");
     while (1);
   }
-  Serial.println("RFM69 radio init OK!");
+  //Serial.println("RFM69 radio init OK");
+
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM (for low power module)
   // No encryption
   if (!rf69.setFrequency(RF69_FREQ)) {
     Serial.println("setFrequency failed");
   }
   else {
-    Serial.println("setFrequency success");
+    //Serial.println("setFrequency success");
   }
 
   // If you are using a high power RF69 eg RFM69HW, you *must* set a Tx power with the
@@ -75,9 +70,42 @@ void setup() {
   Serial.print("RFM69 radio @");  Serial.print((int)RF69_FREQ);  Serial.println(" MHz");
 }
 
-void loop() {
-  delay(1000);  // Wait 1 second between transmits, could also 'sleep' here!
+void Encoder_Setup(){
+  Wire.setSDA(0);   // adjust if using different GPIOs
+  Wire.setSCL(1);
+  Wire.begin();
+  
+  if (!ss.begin(0x36)) {
+    Serial.println("Seesaw not found!");
+  }
+}
 
+double t = 0.0;
+double last_received_message = 0.0;
+
+void loop() {
+  //if (!rf69.available()) return;
+  //Serial.println(counter);
+  delay(10);
+  t += 0.01;
+
+  long steps = lround(t * 100.0); // counter in 0.01 units
+  if (steps % 10 == 0) {
+    //SendRfmMessage();
+    
+    int32_t pos = ss.getEncoderPosition();
+    Serial.println(pos);
+  }
+
+  
+  //int32_t pos = ss.getEncoderPosition();
+  //Serial.println(pos);
+
+  SetLED();
+  ReceiveRfmMessage();
+}
+
+void SendRfmMessage(){
   char radiopacket[20] = "Hello World #";
   itoa(packetnum++, radiopacket+13, 10);
   Serial.print("Sending "); Serial.println(radiopacket);
@@ -89,26 +117,51 @@ void loop() {
   // Now wait for a reply
   uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
   uint8_t len = sizeof(buf);
+}
 
-  if (rf69.waitAvailableTimeout(500)) {
-    // Should be a reply message for us now
-    if (rf69.recv(buf, &len)) {
-      Serial.print("Got a reply: ");
-      Serial.println((char*)buf);
-      Blink(LED, 50, 3); // blink LED 3 times, 50ms between blinks
-    } else {
-      Serial.println("Receive failed");
+void ReceiveRfmMessage(){
+  uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+  uint8_t len = sizeof(buf);
+  if (rf69.recv(buf, &len)) {
+    if (!len) return;
+    buf[len] = 0;
+    Serial.print("Received [");
+    Serial.print(len);
+    Serial.print("]: ");
+    Serial.println((char*)buf);
+    Serial.print("RSSI: ");
+    Serial.println(rf69.lastRssi(), DEC);
+
+    last_received_message = t;
+
+    if (strstr((char *)buf, "Hello World")) {
+      // Send a reply!
+      uint8_t data[] = "response";
+      rf69.send(data, sizeof(data));
+      rf69.waitPacketSent();
+      Serial.println("Sent a reply");
     }
-  } else {
-    //Serial.println("No reply, is another RFM69 listening?");
   }
 }
 
-void Blink(byte pin, byte delay_ms, byte loops) {
-  while (loops--) {
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-    delay(delay_ms);
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-    delay(delay_ms);
+void SetLED() {
+  double timeSinceMsg = t - last_received_message;
+  int brightness;
+  if (timeSinceMsg < 2.0) {
+    // Nonlinear fade (ease-out effect)
+    double ratio = timeSinceMsg / 2.0;
+    brightness = (int)(255.0 * pow(1.0 - ratio, 2.0));
+  } else {
+    brightness = 0;
   }
+  analogWrite(greenPin, brightness);
 }
+
+// void Blink(byte pin, byte delay_ms, byte loops) {
+//   while (loops--) {
+//     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+//     delay(delay_ms);
+//     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+//     delay(delay_ms);
+//   }
+// }

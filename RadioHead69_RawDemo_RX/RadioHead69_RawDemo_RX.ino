@@ -1,55 +1,38 @@
-// rf69 demo tx rx.pde
-// -*- mode: C++ -*-
-// Example sketch showing how to create a simple messaging client
-// with the RH_RF69 class. RH_RF69 class does not provide for addressing
-// or reliability, so you should only use RH_RF69 if you do not need the
-// higher level messaging abilities.
-// It is designed to work with the other example RadioHead69_RawDemo_TX.
-// Demonstrates the use of AES encryption, setting the frequency and
-// modem configuration.
-
 #include <SPI.h>
 #include <RH_RF69.h>
 #include <math.h>
-
-/************ Radio Setup ***************/
-
-// Change to 434.0 or other frequency, must match RX's freq!
+#include <Wire.h>
+#include "Adafruit_seesaw.h"
 #define RF69_FREQ 915.0
-
-// Pin definitions for Raspberry Pi Pico + RFM69 module
 #define RFM69_CS   13
 #define RFM69_RST  15
 #define RFM69_INT  14
 #define LED        25  // Use 25 for onboard LED, or 13 if you wired an external LED
-
-/* Teensy 3.x w/wing
-#define RFM69_CS     10  // "B"
-#define RFM69_INT     4  // "C"
-#define RFM69_RST     9  // "A"
-#define RFM69_IRQN   digitalPinToInterrupt(RFM69_INT)
-*/
-
-/* WICED Feather w/wing
-#define RFM69_CS     PB4  // "B"
-#define RFM69_INT    PA15 // "C"
-#define RFM69_RST    PA4  // "A"
-#define RFM69_IRQN   RFM69_INT
-*/
-
-// Singleton instance of the radio driver
+const int redPin = 0;
+const int greenPin = 2;
+const int bluePin = 1;
+const int yellowLedPin = 3;
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 
 void setup() {
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
+  pinMode(yellowLedPin, OUTPUT);
+
   Serial.begin(115200);
   //delay(2000); // Wait for USB serial to initialize
   while (!Serial) delay(1); // Wait for Serial Console (comment out line if no computer)
 
-  Serial.println("Initialized");
+  analogWrite(yellowLedPin, 255);
+  RFM_Setup();
+}
+
+void RFM_Setup(){
+  //Serial.println("Initialized");
 
   pinMode(RFM69_RST, OUTPUT);
   digitalWrite(RFM69_RST, LOW);
-
 
   // manual reset
   digitalWrite(RFM69_RST, HIGH);
@@ -61,7 +44,7 @@ void setup() {
     Serial.println("RFM69 radio init failed");
     while (1);
   }
-  Serial.println("RFM69 radio init OK");
+  //Serial.println("RFM69 radio init OK");
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM (for low power module)
   // No encryption
@@ -69,7 +52,7 @@ void setup() {
     Serial.println("setFrequency failed");
   }
   else {
-    Serial.println("setFrequency success");
+    //Serial.println("setFrequency success");
   }
 
   // If you are using a high power RF69 eg RFM69HW, you *must* set a Tx power with the
@@ -84,19 +67,27 @@ void setup() {
   Serial.print("RFM69 radio @");  Serial.print((int)RF69_FREQ);  Serial.println(" MHz");
 }
 
-double counter = 0.0;
+double t = 0.0;
+double last_received_message = 0.0;
+//bool ledIsOn = false;
 void loop() {
   //if (!rf69.available()) return;
-  delay(10);
-  counter += 0.01;
   //Serial.println(counter);
+  delay(10);
+  t += 0.01;
 
-  long steps = lround(counter * 100.0); // counter in 0.01 units
-  if (steps % 50 == 0) {                // 50 * 0.01 = 0.50
-      Serial.println("Send msg");
+  long steps = lround(t * 100.0); // counter in 0.01 units
+  if (steps % 100 == 0) {
+      int32_t position = encoder.getEncoderPosition();
+      Serial.print("Position: ");
+      Serial.println(position);
   }
 
-  // Should be a message for us now
+  SetLED();
+  ReceiveRfmMessage();
+}
+
+void ReceiveRfmMessage(){
   uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
   uint8_t len = sizeof(buf);
   if (rf69.recv(buf, &len)) {
@@ -109,6 +100,8 @@ void loop() {
     Serial.print("RSSI: ");
     Serial.println(rf69.lastRssi(), DEC);
 
+    last_received_message = t;
+
     if (strstr((char *)buf, "Hello World")) {
       // Send a reply!
       uint8_t data[] = "response";
@@ -117,4 +110,17 @@ void loop() {
       Serial.println("Sent a reply");
     }
   }
+}
+
+void SetLED() {
+  double timeSinceMsg = t - last_received_message;
+  int brightness;
+  if (timeSinceMsg < 2.0) {
+    // Nonlinear fade (ease-out effect)
+    double ratio = timeSinceMsg / 2.0;
+    brightness = (int)(255.0 * pow(1.0 - ratio, 2.0));
+  } else {
+    brightness = 0;
+  }
+  analogWrite(greenPin, brightness);
 }
