@@ -32,9 +32,12 @@ void setup() {
   
   RFM_Setup();
   Encoder_Setup();
+  if(encoder_detected){
+    is_tx = false;
+  }
   Gyro_Setup();
 
-  SendRfmMessage();
+  //SendRfmMessage();
   Serial.println("Finished setup.");
 }
 
@@ -84,7 +87,6 @@ void Encoder_Setup(){
   
   if (ss.begin(0x36)) {
     encoder_detected = true;
-    is_tx = false;
   }
 }
 
@@ -118,6 +120,7 @@ void loop() {
       int32_t pos = ss.getEncoderPosition();
       if(pos == 0 && encoder_position != 0){
         last_received_message = t;
+        sendRfmMessage("test");
       }
       encoder_position = pos;
       Serial.println(pos);
@@ -133,59 +136,101 @@ void loop() {
     }
   }
 
-  
-  //int32_t pos = ss.getEncoderPosition();
-  //Serial.println(pos);
-
   SetLED();
   ReceiveRfmMessage();
 }
 
-void SendRfmMessage(){
-  char radiopacket[20] = "Hello World #";
-  itoa(packetnum++, radiopacket+13, 10);
-  Serial.print("Sending "); Serial.println(radiopacket);
+void sendRfmMessage(const char *textPayload) {
+  Serial.print("Send ");
+  Serial.println(textPayload);
 
-  // Send a message!
-  rf69.send((uint8_t *)radiopacket, strlen(radiopacket));
-  rf69.waitPacketSent();
+  uint8_t packet[RH_RF69_MAX_MESSAGE_LEN];
 
-  // Now wait for a reply
-  uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
-  uint8_t len = sizeof(buf);
-}
+  uint8_t payloadLen = strlen(textPayload);
+  if (payloadLen + 3 > RH_RF69_MAX_MESSAGE_LEN) return;
 
-void ReceiveRfmMessage(){
-  uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
-  uint8_t len = sizeof(buf);
-  if (rf69.recv(buf, &len)) {
-    if (!len) return;
-    buf[len] = 0;
-    Serial.print("Received [");
-    Serial.print(len);
-    Serial.print("]: ");
-    Serial.println((char*)buf);
-    Serial.print("RSSI: ");
-    Serial.println(rf69.lastRssi(), DEC);
+  uint8_t index = 0;
+  uint8_t startByte = 0x7E;
+  uint8_t version = 1;
+  uint8_t dest = 1;
+  uint8_t source = 2;
+  uint8_t type = 7;
+  uint8_t commandID = 1;
+  uint8_t sequence = 1;
+  uint8_t isLastChunk = 1;
 
-    last_received_message = t;
+  packet[index++] = startByte;
+  packet[index++] = version;
+  packet[index++] = dest;
+  packet[index++] = source;
+  packet[index++] = type;
+  packet[index++] = commandID;
+  packet[index++] = sequence;
+  packet[index++] = isLastChunk;
+  packet[index++] = payloadLen;
 
-    if (strstr((char *)buf, "Hello World")) {
-      // Send a reply!
-      uint8_t data[] = "response";
-      rf69.send(data, sizeof(data));
-      rf69.waitPacketSent();
-      Serial.println("Sent a reply");
-    }
+  for (uint8_t i = 0; i < payloadLen; i++) {
+      packet[index++] = textPayload[i];
   }
+
+  rf69.send(packet, index);
+  rf69.waitPacketSent();
 }
+
+void ReceiveRfmMessage() {
+  static uint8_t buf[RH_RF69_MAX_MESSAGE_LEN];
+  static char text[RH_RF69_MAX_MESSAGE_LEN];
+
+  uint8_t len = sizeof(buf);
+
+  if (!rf69.available()) return;
+  if (!rf69.recv(buf, &len)) return;
+  if (len < 9) return;
+
+  uint8_t startByte = buf[0];
+  uint8_t version = buf[1];
+  uint8_t dest = buf[2];
+  uint8_t source = buf[3];
+  uint8_t type = buf[4];
+  uint8_t commandID = buf[5];
+  uint8_t sequence = buf[6];
+  uint8_t isLastChunk = buf[7];
+  uint8_t payloadLen = buf[8];
+
+  if (payloadLen + 9 > len) return;
+
+  memcpy(text, buf + 9, payloadLen);
+  text[payloadLen] = '\0';
+
+  Serial.print("Start Byte: "); Serial.println(startByte);
+  Serial.print("Version: "); Serial.println(version);
+  Serial.print("Dest: "); Serial.println(dest);
+  Serial.print("Source: ");Serial.println(source);
+  Serial.print("Type: ");Serial.println(type);
+  Serial.print("Command ID: ");Serial.println(commandID);
+  Serial.print("Sequence: ");Serial.println(sequence);
+  Serial.print("Is Last Chunk: ");Serial.println(isLastChunk);
+  Serial.print("Payload Length: ");Serial.println(payloadLen);
+  Serial.print("Payload: ");Serial.println(text);
+
+  last_received_message = t;
+}
+
+
+    // if (strstr((char *)buf, "Hello World")) {
+    //   // Send a reply!
+    //   uint8_t data[] = "response";
+    //   rf69.send(data, sizeof(data));
+    //   rf69.waitPacketSent();
+    //   Serial.println("Sent a reply");
+    // }
 
 void SetLED() {
   double timeSinceMsg = t - last_received_message;
   int brightness;
-  if (timeSinceMsg < 2.0) {
+  if (timeSinceMsg < 1.0) {
     // Nonlinear fade (ease-out effect)
-    double ratio = timeSinceMsg / 2.0;
+    double ratio = timeSinceMsg;
     brightness = (int)(255.0 * pow(1.0 - ratio, 2.0));
   } else {
     brightness = 0;
