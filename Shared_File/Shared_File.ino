@@ -5,7 +5,10 @@
 #include "Adafruit_seesaw.h"
 #include <Adafruit_BNO055.h>
 #include <Wire.h>
+#include <ArduinoJson.h>
+
 #define RF69_FREQ 915.0
+
 #define RFM69_CS   13
 #define RFM69_RST  15
 #define RFM69_INT  14
@@ -13,6 +16,7 @@
 const int redPin = 0;
 const int greenPin = 2;
 const int bluePin = 1;
+
 RH_RF69 rf69(RFM69_CS, RFM69_INT);
 Adafruit_seesaw ss;
 Adafruit_BNO055 bno(55, 0x28, &Wire1);
@@ -28,7 +32,7 @@ void setup() {
   //pinMode(bluePin, OUTPUT);
 
   Serial.begin(115200);
-  while(!Serial);
+  //while(!Serial);
   
   RFM_Setup();
   Encoder_Setup();
@@ -36,6 +40,11 @@ void setup() {
     is_tx = false;
   }
   Gyro_Setup();
+
+  
+  pinMode(4, OUTPUT);   // choose your pin
+  digitalWrite(4, HIGH); // outputs 3.3 V
+  pinMode(5, INPUT_PULLUP);
 
   //SendRfmMessage();
   Serial.println("Finished setup.");
@@ -107,6 +116,7 @@ void Gyro_Setup(){
 double t = 0.0;
 double last_received_message = 0.0;
 int32_t encoder_position = 0;
+bool button_is_pressed = false;
 
 void loop() {
   delay(10);
@@ -120,19 +130,45 @@ void loop() {
       int32_t pos = ss.getEncoderPosition();
       if(pos == 0 && encoder_position != 0){
         last_received_message = t;
-        sendRfmMessage("test");
+        digitalWrite(4, LOW); // outputs 3.3 V
       }
+      else if(pos != 0){
+        digitalWrite(4, HIGH); // outputs 3.3 V
+      }
+
       encoder_position = pos;
-      Serial.println(pos);
+      //Serial.println(pos);
     }
+
+    int buttonState = digitalRead(5);
+    bool button_pressed = buttonState == LOW;
+
+    if (button_pressed && !button_is_pressed) {
+      Serial.println("Button is pressed!");
+      // if(pos != encoder_position){
+      //   JsonDocument doc;
+      //   doc["button"] = button_pressed;
+      //   doc["knob"]   = pos;
+      //   // JsonArray data = doc["data"].to<JsonArray>();
+      //   // data.add(48.75);
+      //   // data.add(50.21);
+      //   String output;
+      //   serializeJson(doc, output);
+      //   sendRfmMessage(output.c_str());
+      // }
+      last_received_message = t;
+    } else if(!button_pressed && button_is_pressed) {
+      Serial.println("Button released");
+    }
+    button_is_pressed = button_pressed;
 
     if(bno_detected){
       auto vec = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-      Serial.print(vec.x());
-      Serial.print(", ");
-      Serial.print(vec.y());
-      Serial.print(", ");
-      Serial.println(vec.z());
+      // Serial.print(vec.x());
+      // Serial.print(", ");
+      // Serial.print(vec.y());
+      // Serial.print(", ");
+      // Serial.println(vec.z());
     }
   }
 
@@ -212,6 +248,25 @@ void ReceiveRfmMessage() {
   Serial.print("Is Last Chunk: ");Serial.println(isLastChunk);
   Serial.print("Payload Length: ");Serial.println(payloadLen);
   Serial.print("Payload: ");Serial.println(text);
+
+  
+  //digitalWrite(4, LOW); // outputs 3.3 V
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, text);
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.c_str());
+    return;
+  }
+  bool button = doc["button"];    // 48.756080
+  //Serial.println(knob);
+
+  if(button){
+    digitalWrite(4, LOW); // outputs 3.3 V
+  }
+  else {
+    digitalWrite(4, HIGH); // outputs 3.3 V
+  }
 
   last_received_message = t;
 }
